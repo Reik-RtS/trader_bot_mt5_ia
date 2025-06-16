@@ -15,6 +15,7 @@ import keyring
 import tkinter as tk
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import glob
 from datetime import datetime, timezone
 from queue import Queue, Empty
 from functools import lru_cache
@@ -396,17 +397,33 @@ class SupervisedModel:
     def save(self):
         save_atomic(self.clf, SUPERVISED_FILE, log)
 
-    def train_from_feedback(self):
-        if not os.path.exists(FEEDBACK_FILE):
-            return
-        fb = load_feedback()
+    def train_from_feedback(self, include_pseudo=True, pseudo_threshold=0.8):
+        fb = load_feedback() if os.path.exists(FEEDBACK_FILE) else {}
         X, y = [], []
+        processed = set()
+
+        # Datos con retroalimentación humana
         for ticket, label in fb.items():
             feats_file = f"feat_{ticket}.json"
             if os.path.exists(feats_file):
                 data = json.load(open(feats_file, "r"))
                 X.append([data['return'], data['range']])
                 y.append(int(label))
+                processed.add(str(ticket))
+
+        # Pseudo-etiquetas del modelo no supervisado
+        if include_pseudo:
+            for feats_file in glob.glob("feat_*.json"):
+                ticket = os.path.splitext(os.path.basename(feats_file))[0][5:]
+                if ticket in processed:
+                    continue
+                data = json.load(open(feats_file, "r"))
+                conf  = data.get('unsup_conf')
+                label = data.get('unsup_label')
+                if conf is not None and label is not None and conf >= pseudo_threshold:
+                    X.append([data['return'], data['range']])
+                    y.append(int(label))
+
         if X:
             try:
                 self.clf.fit(X, y)
@@ -599,7 +616,7 @@ class TradingBot:
         if not self.training_mode:
             threading.Thread(target=self.live_training_loop, daemon=True).start()
 
-    def open_order(self, sym, otype):
+    def open_order(self, sym, otype, unsup_conf=None):
         info = get_symbol_info(sym)
         tick = mt5.symbol_info_tick(sym)
         if not info or not tick:
@@ -640,6 +657,14 @@ class TradingBot:
             ['return','range','vol_rel','rsi14','sma5'],
             self._last_feat.flatten().tolist()
         ))
+
+        # Información del modelo no supervisado
+        if unsup_conf is not None:
+            feat_data['unsup_label'] = int(unsup_conf >= 0.5)
+            feat_data['unsup_conf']  = float(unsup_conf)
+
+        # Tipo de orden ejecutada
+        feat_data['order_type'] = int(otype)
 
         with open(f"feat_{result.order}.json", "w", encoding="utf-8") as f:
             json.dump(feat_data, f)
@@ -753,7 +778,7 @@ class TradingBot:
 
                         if combined_conf >= self.min_confidence:
                             score = abs(last_feat[0][0]) * combined_conf
-                            candidates.append((sym, unsig_type, score, combined_conf))
+                            candidates.append((sym, unsig_type, score, combined_conf, conf_unsup))
 
                     # 4) Ordenar candidatos por score descendente
                     candidates.sort(key=lambda x: x[2], reverse=True)
@@ -761,10 +786,10 @@ class TradingBot:
                     # 5) Abrir hasta completar max_ops
                     slots = max_ops - len(positions)
                     ops_count = 0
-                    for sym, otype, score, conf in candidates:
+                    for sym, otype, score, conf, conf_uns in candidates:
                         if slots <= 0:
                             break
-                        ticket = self.open_order(sym, otype)
+                        ticket = self.open_order(sym, otype, conf_uns)
                         if ticket:
                             ops_count += 1
                             slots -= 1
