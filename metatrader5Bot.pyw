@@ -579,7 +579,7 @@ class TradingBot:
             try:
                 for s in self.symbols:
                     df = get_historical_data(s, mt5.TIMEFRAME_M1, 100)
-                    feats, _ = self.generate_features(df)
+                    feats, _ = self.generate_features(df, s)
                     if feats.size:
                         self.u_model.update(feats)
                 time.sleep(5)
@@ -724,7 +724,7 @@ class TradingBot:
                     candidates = []
                     for sym in self.symbols:
                         df = get_historical_data(sym, mt5.TIMEFRAME_M1, 20)
-                        feats, _ = self.generate_features(df)
+                        feats, _ = self.generate_features(df, sym)
                         if feats.size == 0:
                             continue
 
@@ -1108,8 +1108,10 @@ class PanelWindow(tk.Tk):
         cfg = load_config()
         self.var_interval = tk.StringVar(value=str(cfg.get("interval",1)))
         self.var_maxops   = tk.StringVar(value=str(cfg.get("max_ops",5)))
+        self.var_backtest = tk.StringVar(value=str(cfg.get("backtest_days",90)))
         self.var_interval.trace_add("write", self._on_params)
         self.var_maxops.trace_add("write", self._on_params)
+        self.var_backtest.trace_add("write", self._on_params)
 
         # Fila 0: Parámetros y botones Logout/Historial
         tk.Label(self, text="Minutos ciclo:", bg=DarkStyle.bg, fg=DarkStyle.fg)\
@@ -1151,6 +1153,11 @@ class PanelWindow(tk.Tk):
         tk.Button(self, text="Importar Modelo", command=self._import_model,
                   bg=DarkStyle.btn_bg, fg=DarkStyle.btn_fg) \
             .grid(row=1, column=2, padx=5, pady=5, sticky="ew")
+        tk.Label(self, text="Días de Entrenar:", bg=DarkStyle.bg, fg=DarkStyle.fg) \
+            .grid(row=1, column=3, padx=5, pady=5, sticky="e")
+        tk.Entry(self, textvariable=self.var_backtest,
+                 bg=DarkStyle.entry_bg, fg=DarkStyle.entry_fg) \
+            .grid(row=1, column=4, padx=5, pady=5, sticky="ew")
 
         # Fila 2: Copiar LOG. / Trading / Training
         self.copy_btn = tk.Button(
@@ -1365,7 +1372,7 @@ class PanelWindow(tk.Tk):
             cfg = load_config()
             cfg["interval"] = int(self.var_interval.get())
             cfg["max_ops"]  = int(self.var_maxops.get())
-            fg["backtest_days"]  = int(self.var_backtest.get())
+            cfg["backtest_days"]  = int(self.var_backtest.get())
             save_config(cfg)
         except ValueError:
             pass
@@ -1522,12 +1529,14 @@ class PanelWindow(tk.Tk):
         txt.configure(state='disabled')
         txt.see(tk.END)
 
-        log_scroll = tk.Scrollbar(self, orient="vertical", command=self.log_widget.yview)
-        self.log_widget.configure(yscrollcommand=log_scroll.set)
-        log_scroll.grid(row=6, column=8, sticky="ns")
+#        log_scroll = tk.Scrollbar(self, orient="vertical", command=self.log_widget.yview)
+#        self.log_widget.configure(yscrollcommand=log_scroll.set)
+#        log_scroll.grid(row=6, column=8, sticky="ns")
 
-        xsb.pack(fill='x', side='bottom')
+#        xsb.pack(fill='x', side='bottom')
+        xsb = tk.Scrollbar(win, orient="horizontal", command=txt.xview)
         txt.configure(xscrollcommand=xsb.set)
+        xsb.pack(fill='x', side='bottom')
 
         def poll_queue():
             try:
