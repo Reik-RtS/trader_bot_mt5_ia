@@ -599,7 +599,7 @@ class TradingBot:
         if not self.training_mode:
             threading.Thread(target=self.live_training_loop, daemon=True).start()
 
-    def open_order(self, sym, otype):
+    def open_order(self, sym, otype, feat):
         info = get_symbol_info(sym)
         tick = mt5.symbol_info_tick(sym)
         if not info or not tick:
@@ -637,8 +637,8 @@ class TradingBot:
 
         log(f"🟢 Abierta {sym}, ticket={result.order}")
         feat_data = dict(zip(
-            ['return','range','vol_rel','rsi14','sma5'],
-            self._last_feat.flatten().tolist()
+            FEATURE_NAMES_30,
+            [float(x) for x in feat.flatten().tolist()]
         ))
 
         with open(f"feat_{result.order}.json", "w", encoding="utf-8") as f:
@@ -712,7 +712,6 @@ class TradingBot:
                 save_history(hist)
 
         alpha = 0.7  # peso para el modelo supervisado en la confianza combinada
-        self._last_feat = None  # inicializamos el atributo
 
         while self.trading_mode:
             try:
@@ -738,8 +737,6 @@ class TradingBot:
 
                         # última muestra
                         last_feat = feats[-1].reshape(1, -1)
-                        # guardamos para open_order
-                        self._last_feat = last_feat
 
                         # dirección sin supervisión
                         unsig_type = self.u_model.predict(last_feat)
@@ -753,7 +750,7 @@ class TradingBot:
 
                         if combined_conf >= self.min_confidence:
                             score = abs(last_feat[0][0]) * combined_conf
-                            candidates.append((sym, unsig_type, score, combined_conf))
+                            candidates.append((sym, unsig_type, score, combined_conf, last_feat))
 
                     # 4) Ordenar candidatos por score descendente
                     candidates.sort(key=lambda x: x[2], reverse=True)
@@ -761,10 +758,10 @@ class TradingBot:
                     # 5) Abrir hasta completar max_ops
                     slots = max_ops - len(positions)
                     ops_count = 0
-                    for sym, otype, score, conf in candidates:
+                    for sym, otype, score, conf, vec in candidates:
                         if slots <= 0:
                             break
-                        ticket = self.open_order(sym, otype)
+                        ticket = self.open_order(sym, otype, vec)
                         if ticket:
                             ops_count += 1
                             slots -= 1
