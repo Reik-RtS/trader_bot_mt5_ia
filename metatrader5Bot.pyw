@@ -97,7 +97,8 @@ def load_config():
         "backtest_days":  182,
         "auto":           False,
         "login":          None,
-        "server":         None
+        "server":         None,
+        "alpha":          0.7
     }
 
     if not os.path.exists(CONFIG_FILE):
@@ -711,7 +712,8 @@ class TradingBot:
                 hist["initial_balance"] = acc.balance
                 save_history(hist)
 
-        alpha = 0.7  # peso para el modelo supervisado en la confianza combinada
+        cfg = load_config()
+        alpha = cfg.get("alpha", 0.7)  # peso para el modelo supervisado en la confianza combinada
         self._last_feat = None  # inicializamos el atributo
 
         while self.trading_mode:
@@ -720,6 +722,7 @@ class TradingBot:
                 cfg = load_config()
                 interval = cfg.get("interval", interval)
                 max_ops  = cfg.get("max_ops", max_ops)
+                alpha    = cfg.get("alpha", alpha)
                 start_time = time.time()
 
                 # 1) Gestionar stops y cierres forzosos
